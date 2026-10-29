@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AIOps 运维看板</title>
+  <style>
+    :root { --bg:#0f1729; --card:#182440; --line:#26345a; --fg:#e6edf7; --muted:#8ea1c4;
+            --ok:#2ecc71; --warn:#f1c40f; --down:#e74c3c; --accent:#4d8bff; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif;
+           background:var(--bg); color:var(--fg); }
+    header { padding:18px 28px; border-bottom:1px solid var(--line); display:flex;
+             justify-content:space-between; align-items:center; }
+    h1 { font-size:18px; margin:0; letter-spacing:.5px; }
+    h1 span { color:var(--accent); }
+    .clock { color:var(--muted); font-size:13px; }
+    main { padding:24px 28px; max-width:1200px; margin:0 auto; }
+    .cards { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; }
+    .card .label { color:var(--muted); font-size:13px; margin-bottom:8px; }
+    .card .value { font-size:30px; font-weight:600; }
+    .value.ok { color:var(--ok); } .value.down { color:var(--down); }
+    .section { background:var(--card); border:1px solid var(--line); border-radius:12px;
+               padding:18px 20px; margin-bottom:22px; }
+    .section h2 { font-size:15px; margin:0 0 14px; color:var(--fg); }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th,td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-weight:500; }
+    .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; }
+    .dot.ok{background:var(--ok);} .dot.down{background:var(--down);}
+    .badge { padding:2px 9px; border-radius:20px; font-size:12px; font-weight:600; }
+    .badge.critical{background:rgba(231,76,60,.18); color:var(--down);}
+    .badge.warning{background:rgba(241,196,15,.18); color:var(--warn);}
+    .badge.info{background:rgba(77,139,255,.18); color:var(--accent);}
+    .feed li { list-style:none; padding:9px 0; border-bottom:1px dashed var(--line); font-size:13.5px; }
+    .feed ul { margin:0; padding:0; }
+    .feed .muted { color:var(--muted); }
+    textarea { width:100%; min-height:70px; background:#0c1424; color:var(--fg);
+               border:1px solid var(--line); border-radius:8px; padding:10px; font-family:ui-monospace,Menlo,monospace; font-size:13px; }
+    button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 16px;
+             font-size:14px; cursor:pointer; margin-top:10px; }
+    button:hover { opacity:.9; }
+    pre { background:#0c1424; border:1px solid var(--line); border-radius:8px; padding:12px;
+          overflow:auto; font-size:12.5px; color:#cfe0ff; min-height:40px; }
+    .row { display:flex; gap:10px; align-items:center; }
+    footer { text-align:center; color:var(--muted); font-size:12px; padding:16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>轻量级 <span>AIOps</span> 自动化运维看板</h1>
+    <div class="clock" id="clock">--</div>
+  </header>
+
+  <main>
+    <div class="cards">
+      <div class="card"><div class="label">服务健康</div><div class="value" id="svc-health">--</div></div>
+      <div class="card"><div class="label">异常服务</div><div class="value" id="svc-down">--</div></div>
+      <div class="card"><div class="label">检测规则</div><div class="value" id="rules">--</div></div>
+      <div class="card"><div class="label">Critical 告警</div><div class="value down" id="crit">--</div></div>
+    </div>
+
+    <div class="section">
+      <h2>服务状态（实时探活）</h2>
+      <table><thead><tr><th>服务</th><th>类型</th><th>目标</th><th>状态</th><th>延迟</th><th>详情</th></tr></thead>
+      <tbody id="svc-rows"><tr><td colspan="6" class="muted">加载中…</td></tr></tbody></table>
+      <button onclick="probeAlert()">▶ 运行探测并对异常告警</button>
+    </div>
+
+    <div class="section">
+      <h2>告警流（最近事件，最新在上）</h2>
+      <div class="feed"><ul id="alert-feed"><li class="muted">加载中…</li></ul></div>
+    </div>
+
+    <div class="section">
+      <h2>部署计划生成器（按变更文件推导最小影响面动作）</h2>
+      <textarea id="changes" placeholder="每行一个变更文件路径，例如：&#10;backend/apps/accounts/views.py&#10;frontend/apps/student-web/src/App.tsx&#10;uv.lock"></textarea>
+      <button onclick="genPlan()">计算部署方案</button>
+      <pre id="plan-out">点击「计算部署方案」查看将执行的命令（dry-run，不会真的执行）。</pre>
+    </div>
+  </main>
+
+  <footer>纯标准库 http.server 后端 + 原生前端 · 零第三方依赖 · 每 5 秒自动刷新</footer>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n == null ? "—" : n;
+
+  function esc(s){return (s||"").replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+  async function load() {
+    try {
+      const s = await (await fetch("/api/summary")).json();
+      const up = s.services_total - s.services_down;
+      $("svc-health").textContent = up + "/" + s.services_total;
+      $("svc-health").className = "value " + (s.services_down ? "down" : "ok");
+      $("svc-down").textContent = s.services_down;
+      $("svc-down").className = "value " + (s.services_down ? "down" : "ok");
+      $("rules").textContent = s.rules_count;
+      $("crit").textContent = s.alerts_by_severity.critical || 0;
+
+      $("svc-rows").innerHTML = s.services.map(x =>
+        `<tr><td>${esc(x.name)}</td><td>${x.kind}</td><td class="muted">${esc(x.target)}</td>
+         <td><span class="dot ${x.healthy?'ok':'down'}"></span>${x.healthy?'健康':'异常'}</td>
+         <td>${fmt(x.latency_ms)} ms</td><td class="muted">${esc(x.detail)}</td></tr>`
+      ).join("");
+    } catch(e){ $("svc-rows").innerHTML = `<tr><td colspan=6 class=muted>后端未响应</td></tr>`; }
+
+    try {
+      const a = await (await fetch("/api/alerts")).json();
+      $("alert-feed").innerHTML = a.length ? a.map(x =>
+        `<li><span class="badge ${x.severity}">${x.severity}</span>
+         <b>${esc(x.service)}</b> <span class="muted">${esc(x.rule_id)}${x.count>1?' ×'+x.count:''}</span>
+         <div class="muted">${esc(x.message)}</div></li>`).join("")
+        : '<li class="muted">暂无告警</li>';
+    } catch(e){ $("alert-feed").innerHTML = '<li class="muted">后端未响应</li>'; }
+  }
+
+  async function probeAlert() {
+    const r = await (await fetch("/api/probe-alert",{method:"POST"})).json();
+    await load();
+  }
+
+  async function genPlan() {
+    const lines = $("changes").value.split("\n").map(x=>x.trim()).filter(Boolean);
+    if (!lines.length){ $("plan-out").textContent="请输入至少一个文件路径。"; return; }
+    const resp = await fetch("/api/deploy-plan",{method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({changes:lines})});
+    const data = await resp.json();
+    if (!data.actions.length){ $("plan-out").textContent="未推导出部署动作（多为文档/测试类变更）。"; return; }
+    $("plan-out").textContent = data.actions.map(a =>
+      `▶ ${a.kind}：${a.description}\n${a.commands.map(c=>"    $ "+c).join("\n")}`).join("\n\n");
+  }
+
+  function tick(){ $("clock").textContent = new Date().toLocaleString("zh-CN"); }
+  tick(); setInterval(tick,1000); load(); setInterval(load,5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# AIOps 平台主配置（标准库 tomllib 解析）
+
+[runtime]
+state_dir = "state"
+
+[ingest]
+# fluent-bit file output (Format json_lines) 落盘位置
+log_source = "state/containers.log"
+
+# 被监控服务清单：kind = http | tcp | command
+[[services]]
+name = "django"
+kind = "http"
+target = "http://127.0.0.1:8080/api/v2/health"
+timeout = 3.0
+expected_status = 200
+
+[[services]]
+name = "nginx-gateway"
+kind = "http"
+target = "http://127.0.0.1:8080/"
+timeout = 2.0
+
+[[services]]
+name = "mysql"
+kind = "tcp"
+target = "127.0.0.1:3306"
+timeout = 2.0
+
+[[services]]
+name = "redis"
+kind = "tcp"
+target = "127.0.0.1:6379"
+timeout = 2.0
+
+[alerting]
+# 多通道：console 永远兜底；配了环境变量则走钉钉，否则自动降级
+channels = [
+  { kind = "console" },
+  { kind = "file", path = "state/alerts.log" },
+  { kind = "dingtalk", webhook_env = "DINGTALK_WEBHOOK", secret_env = "DINGTALK_SECRET" },
+]
+
+[deploy]
+sync_src = "."
+sync_dst = "/opt/agent2/"
+backend_services = ["django", "celery"]

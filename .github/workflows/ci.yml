@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 纯标准库项目：无需 pip install 即可跑测试，装依赖仅为了 lint
+      - name: Install lint tools
+        run: pip install ruff==0.13.1
+
+      - name: Lint (ruff)
+        run: ruff check src tests
+
+      - name: Unit tests (stdlib unittest)
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
+
+      - name: End-to-end smoke (demo)
+        run: PYTHONPATH=src python -m aiops.cli demo

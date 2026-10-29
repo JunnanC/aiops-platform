@@ -1,0 +1,37 @@
+# 演示用可观测栈：nginx(被测服务) + fluent-bit(采集) + aiops-runner(分析/告警/部署)
+# 生产环境把 nginx 换成真实的 django/celery/mysql/redis 服务即可。
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: aiops-nginx
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  fluent-bit:
+    image: fluent/fluent-bit:3.1
+    container_name: aiops-fluentbit
+    volumes:
+      - ./config/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./config/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - ./state:/fluent-bit/state
+      # 采集宿主机 docker 容器日志（Linux）：
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - nginx
+    restart: unless-stopped
+
+  aiops:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aiops-runner
+    env_file:
+      - .env            # 放 DINGTALK_WEBHOOK / DINGTALK_SECRET，缺省则降级 console
+    volumes:
+      - ./state:/app/state
+      - ./config:/app/config:ro
+    command: ["python", "-m", "aiops.cli", "ingest", "--follow"]
+    depends_on:
+      - fluent-bit
+    restart: unless-stopped

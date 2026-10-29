@@ -1,0 +1,39 @@
+# 告警检测规则（被 aiops.detect.RuleEngine 加载）
+
+# 1) 关键字：命中崩溃/异常类关键字立即告警
+[[rules]]
+id = "app_exception"
+service = "*"
+type = "keyword"
+severity = "critical"
+keywords = ["Traceback", "CRITICAL", "FATAL", "panic"]
+reason = "应用异常/崩溃关键字"
+
+# 2) 关键字：资源类风险
+[[rules]]
+id = "resource_risk"
+service = "*"
+type = "keyword"
+severity = "warning"
+keywords = ["OOM", "out of memory", "No space left"]
+reason = "内存/磁盘资源风险"
+
+# 3) 正则：慢查询
+[[rules]]
+id = "slow_query"
+service = "mysql"
+type = "regex"
+severity = "warning"
+pattern = "took\\s+\\d{4,}ms"
+reason = "MySQL 慢查询(>=1000ms)"
+
+# 4) 阈值：60s 内同类错误累计 >= 3 次才告警 (去抖动 / 风暴抑制)
+[[rules]]
+id = "error_burst"
+service = "*"
+type = "threshold"
+severity = "critical"
+keywords = ["error", "connection reset", "heartbeat"]
+window_seconds = 60
+count = 3
+reason = "错误风暴(60s内>=3次)"

@@ -14,3 +14,4 @@ state/*.json
 
 # 密钥
 .env
+state/*.jsonl
